@@ -15,6 +15,7 @@ type Louvain struct {
 	level   []Level
 	current *Level
 	m2      WeightType
+	nodeNum []int
 }
 
 func NewLouvain(graph Graph) *Louvain {
@@ -195,19 +196,21 @@ func (this *Louvain) Compute() {
 	}
 }
 
-func (this *Louvain) GetPertition(level int) []int {
+func (this *Louvain) GetPertition(level int) ([]int, []int) {
 	nodeToCommunity := make([]int, this.level[0].graph.GetNodeSize())
+	nodeNum := make([]int, this.GetCommunitiesNum())
 	for nodeId, _ := range nodeToCommunity {
 		commId := nodeId
 		for l := 0; l != level; l++ {
 			commId = this.level[l].inCommunities[commId]
 		}
 		nodeToCommunity[nodeId] = commId
+		nodeNum[commId] = nodeNum[commId] + 1
 	}
-	return nodeToCommunity
+	return nodeToCommunity, nodeNum
 }
 
-func (this *Louvain) GetBestPertition() []int {
+func (this *Louvain) GetBestPertition() ([]int, []int) {
 	return this.GetPertition(len(this.level))
 }
 
@@ -219,4 +222,21 @@ func (this *Louvain) GetNodeToCommunityInEachLevel(nodeId int) []int {
 		nodeToCommunityInEachLevel[l] = commId
 	}
 	return nodeToCommunityInEachLevel
+}
+
+// 输出最后的社区数量
+func (this *Louvain) GetCommunitiesNum() int {
+	return len(this.current.inCommunities)
+}
+
+// 输出最后的社区ID和拥有的节点数量
+func (this *Louvain) GetCommunitiesNodeNum() []int {
+	communities_num := this.GetCommunitiesNum()
+	communities := make([]int, communities_num)
+	for nodeId := 0; nodeId < this.current.graph.GetNodeSize(); nodeId++ {
+		commId := this.current.inCommunities[nodeId]
+		communities[commId] = communities[commId] + 1
+	}
+
+	return communities
 }
