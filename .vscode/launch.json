@@ -1,21 +1,39 @@
 {
-    // IntelliSense を使用して利用可能な属性を学べます。
-    // 既存の属性の説明をホバーして表示します。
-    // 詳細情報は次を確認してください: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
         {
             "name": "Launch",
             "type": "go",
             "request": "launch",
-            "mode": "debug",
-            "remotePath": "",
-            "port": 2345,
-            "host": "127.0.0.1",
+            "mode": "auto",
             "program": "${fileDirname}",
             "env": {},
-            "args": [],
-            "showLog": true
+            "args": []
+        },
+        {
+            // 调试配置的名称，用作vscode中区分
+            "name": "remotedebug",
+            // 调试类型，go语言当然选择go
+            "type": "go",
+            // 调试请求类型，可以选择launch启动调试和attach附加调试
+            "request": "launch",
+            // 调试模式，这里选择远程调试
+            "mode": "remote",
+            //命令行参数数组
+            "args": [
+                "-i", "louvin/resource/from_to49tx.csv"
+            ],
+            // 必填项，远程调试里好像没什么用处
+            "program": "${fileDirname}",
+            // 远程连接的端口号
+            "port": 2345,
+            // 远程主机的ip地址
+            "host": "10.143.13.207",
+            // 被调试的代码在远程主机上的路径，必须使用绝对路径.且具体到指定调试目录
+            "remotePath": "/home/user1/goProject/srcode/go_louvain/src",
         }
+        //终端执行调试命令
+        //dlv debug --headless --listen ":2345" --log --api-version 2 -- louvain_runner.go -i louvain/resource/karate.txt
+
     ]
 }

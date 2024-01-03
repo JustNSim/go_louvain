@@ -17,6 +17,18 @@ go build src/louvain_runner.go
 ./louvain_runner -i src/louvain/resource/karate.txt
 ```
 
+或在clone后在src目录下编译执行下面两命令：
+```
+go build louvain_runner.go
+./louvain_runner -i louvain/resource/karate.txt
+```
+
+调试选择remotedebug，在src目录下执行如下命令后按f5
+```
+dlv debug --headless --listen ":2345" --log --api-version 2 -- -i louvain/resource/karate.txt
+```
+
+
 and it will be obtained.
 ```
 Modularity Q: 0.418803
