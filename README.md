@@ -21,11 +21,13 @@ go build src/louvain_runner.go
 ```
 go build louvain_runner.go
 ./louvain_runner -i louvain/resource/karate.txt
+./louvain_runner -i louvain/resource/from_to_49tx.csv
 ```
 
 调试选择remotedebug，在src目录下执行如下命令后按f5
 ```
 dlv debug --headless --listen ":2345" --log --api-version 2 -- -i louvain/resource/karate.txt
+dlv debug --headless --listen ":2345" --log --api-version 2 -- -i louvain/resource/from_to_49tx.csv
 ```
 
 

@@ -39,6 +39,8 @@ func main() {
 		// 	fmt.Printf("nodeId: %s communityId: %d \n", graphReader.GetNodeLabel(nodeId), commId)
 		// }
 
+		//louvain.GetBestPertition()
+
 		//打印每个社区的节点数
 		_, nodeNum := louvain.GetBestPertition()
 		for commId, nodeNum := range nodeNum {

@@ -2,6 +2,7 @@ package louvain
 
 import (
 	"bufio"
+	"fmt"
 	"log"
 	"os"
 	"strings"
@@ -53,15 +54,21 @@ func (this *GraphReader) Load(filename string) Graph {
 		edgeNum++
 	}
 
-	graph := Graph{make(Edges, edgeNum), make([]WeightType, this.GetNodeSize())}
+	//graph := Graph{make(Edges, edgeNum), make([]WeightType, this.GetNodeSize())}
+	graph := Graph{make(Edges, this.GetNodeSize()), make([]WeightType, this.GetNodeSize())}
+	fmt.Println("1edgeNum:", edgeNum)
+	fmt.Println("1nodeNum:", this.GetNodeSize())
 
 	fp.Seek(0, 0)
 	scanner = bufio.NewScanner(fp)
+	round := 0
 	for scanner.Scan() {
 		line := strings.Split(scanner.Text(), ",")
 		source := this.GetNodeIndex(line[0])
 		dest := this.GetNodeIndex(line[1])
 		weight := WeightType(1.0)
+		round++
+		//fmt.Println("round:", round, " source:", source, " dest:", dest, " weight:", weight)
 		graph.AddUndirectedEdge(source, dest, weight)
 	}
 
