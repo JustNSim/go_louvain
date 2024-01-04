@@ -26,7 +26,7 @@ func main() {
 	louvain := louvain.NewLouvain(graph)
 	louvain.Compute()
 
-	fmt.Printf("Best Modularity Q: %f\n", louvain.BestModularity())
+	//fmt.Printf("m2 of communities: %f\n", louvain.GetM2())
 	fmt.Printf("Number of nodes: %d\n", graph.GetNodeSize())
 	fmt.Printf("Number of communities: %d\n", louvain.GetCommunitiesNum())
 
@@ -34,7 +34,7 @@ func main() {
 		fmt.Printf("Nodes to communities.\n")
 
 		//打印每个节点所属的社区
-		//nodeToCommunity, nodeNum := louvain.GetBestPertition()
+		// nodeToCommunity, nodeNum := louvain.GetBestPertition()
 		// for nodeId, commId := range nodeToCommunity {
 		// 	fmt.Printf("nodeId: %s communityId: %d \n", graphReader.GetNodeLabel(nodeId), commId)
 		// }

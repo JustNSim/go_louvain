@@ -1,14 +1,14 @@
 package louvain
 
 type Community struct {
-	inWeight    WeightType
-	totalWeight WeightType
+	inWeight    WeightType //内部权重2倍加上自环边1倍
+	totalWeight WeightType //等于inWeight+连接外部节点的权重
 }
 
 type Level struct {
 	graph         Graph
-	communities   []Community
-	inCommunities []int
+	communities   []Community //社区的社区信息
+	inCommunities []int       //节点所属社区
 }
 
 type Louvain struct {
@@ -55,6 +55,7 @@ func (this *Level) modularity(m2 WeightType) WeightType {
 	return q
 }
 
+// 合并社区(一次层级内社区合并，要移动的节点的所属分片标签inCommunity变为移动到的分片的分片编号)
 func (this *Louvain) merge() bool {
 	improved := false
 
@@ -64,9 +65,9 @@ func (this *Louvain) merge() bool {
 		q[nodeId] = nodeId
 	}
 
-	for len(q) != 0 {
+	for len(q) != 0 { //q为判断队列，对所有节点进行操作，加入到deltaQ最大的社区
 		nodeId := q[0]
-		q = q[1:] // pop_front
+		q = q[1:] // pop_front，弹出一个节点进行操作
 		mark[nodeId] = true
 
 		neighWeights := map[int]WeightType{}
@@ -88,12 +89,12 @@ func (this *Louvain) merge() bool {
 		prevNeighWeight := WeightType(neighWeights[prevCommunity])
 		this.remove(nodeId, prevCommunity, 2*prevNeighWeight+self, totalWeight)
 
-		maxInc := WeightType(0.0)
+		maxInc := WeightType(0.0) //max_detaQ
 		bestCommunity := prevCommunity
-		bestNeighWeight := WeightType(prevNeighWeight)
+		bestNeighWeight := WeightType(prevNeighWeight) //指与当前节点相连的社区的权重
 		for _, community := range neighWeightsKeys {
 			weight := neighWeights[community]
-			inc := WeightType(weight - this.current.communities[community].totalWeight*totalWeight/this.m2)
+			inc := WeightType(weight - this.current.communities[community].totalWeight*totalWeight/this.m2) //detaQ
 			if inc > maxInc {
 				maxInc = inc
 				bestCommunity = community
@@ -105,7 +106,7 @@ func (this *Louvain) merge() bool {
 
 		if bestCommunity != prevCommunity {
 			improved = true
-			for _, edge := range this.current.graph.GetIncidentEdges(nodeId) {
+			for _, edge := range this.current.graph.GetIncidentEdges(nodeId) { //移动节点的邻居需要重新判断deltaQ，因此加入判断队列q
 				if mark[edge.destId] {
 					q = append(q, edge.destId)
 					mark[edge.destId] = false
@@ -132,32 +133,40 @@ func (this *Louvain) remove(nodeId int, community int, inWeight WeightType, tota
 func (this *Louvain) rebuild() {
 
 	renumbers := map[int]int{}
-	num := 0
-
+	num := 0 //新社区的数量
+	//循环前移动节点的所属分片标签inCommunity为移动到的分片的分片编号，这个循环的目的是为了给新的社区重新编号
 	for nodeId, inCommunity := range this.current.inCommunities {
 		if commId, exists := renumbers[inCommunity]; !exists {
+			//fmt.Println("1-nodeId", nodeId, "inCommunity:", inCommunity, " num:", num)
 			renumbers[inCommunity] = num
 			this.current.inCommunities[nodeId] = num
 			num++
 		} else {
+			//fmt.Println("2-nodeId", nodeId, "inCommunity:", inCommunity, " num:", num)
 			this.current.inCommunities[nodeId] = commId
 		}
 	}
 
+	//移动旧编号社区的社区信息到新编号社区
 	newCommunities := make([]Community, num)
 	for nodeId := 0; nodeId < len(this.current.communities); nodeId++ {
+		//fmt.Println("nodeId:", nodeId, " inCommunity:", this.current.inCommunities[nodeId])
 		if comm, exists := renumbers[nodeId]; exists {
 			newCommunities[comm] = this.current.communities[nodeId]
+			//fmt.Println(("comm:"), comm)
 		}
 	}
 
+	//二维切片，表示新社区所含的节点ID
 	communityNodes := make([][]int, len(newCommunities))
 	for nodeId := 0; nodeId < this.current.graph.GetNodeSize(); nodeId++ {
 		communityNodes[this.current.inCommunities[nodeId]] = append(communityNodes[this.current.inCommunities[nodeId]], nodeId)
 	}
 
+	//一个新社区作为一个点，构造新层级的图
 	newGraph := Graph{make(Edges, len(newCommunities)), make([]WeightType, len(newCommunities))}
 
+	//新图中添加边
 	for commId := 0; commId < newGraph.GetNodeSize(); commId++ {
 		newEdges := map[int]WeightType{}
 		selfWeight := WeightType(0.0)
@@ -191,7 +200,7 @@ func (this *Louvain) GetLevel(n int) *Level {
 }
 
 func (this *Louvain) Compute() {
-	for this.merge() {
+	for this.merge() { //不断的合并重构直到没有节点移动，没有增益
 		this.rebuild()
 	}
 }
@@ -239,4 +248,9 @@ func (this *Louvain) GetCommunitiesNodeNum() []int {
 	}
 
 	return communities
+}
+
+// 返回社区的m2(无自环边的情况下等于边权重的2倍)
+func (this *Louvain) GetM2() WeightType {
+	return this.m2
 }
