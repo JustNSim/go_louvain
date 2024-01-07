@@ -1,8 +1,14 @@
 package louvain
 
+import "fmt"
+
 type Community struct {
 	inWeight    WeightType //内部权重2倍加上自环边1倍
 	totalWeight WeightType //等于inWeight+连接外部节点的权重
+	inTXnum     int        //社区内部交易数量
+	exTXnum     int        //社区外部交易数量
+	inShard     int        //所属分片
+	nodeNum     int        //社区拥有的账户数量
 }
 
 type Level struct {
@@ -11,14 +17,21 @@ type Level struct {
 	inCommunities []int       //节点所属社区
 }
 
+type Shard struct {
+	nodeNum     int
+	performance float32
+	processTime float32
+	inTXnum     int
+	exTXnum     int
+}
 type Louvain struct {
 	level   []Level
 	current *Level
 	m2      WeightType
-	nodeNum []int
+	shard   []Shard
 }
 
-func NewLouvain(graph Graph) *Louvain {
+func NewLouvain(graph Graph, shardPerformance []float32, random bool) *Louvain {
 	louvain := Louvain{}
 	louvain.level = make([]Level, 1)
 	louvain.current = &louvain.level[0]
@@ -26,6 +39,11 @@ func NewLouvain(graph Graph) *Louvain {
 	louvain.current.communities = make([]Community, louvain.current.graph.GetNodeSize())
 	louvain.current.inCommunities = make([]int, louvain.current.graph.GetNodeSize())
 	louvain.m2 = WeightType(0.0)
+	louvain.shard = make([]Shard, len(shardPerformance))
+	for i := 0; i < len(shardPerformance); i++ {
+		louvain.shard[i].performance = shardPerformance[i]
+	}
+	var round int = 0
 	for nodeId := 0; nodeId < louvain.current.graph.GetNodeSize(); nodeId++ {
 		louvain.current.inCommunities[nodeId] = nodeId
 		neigh := WeightType(0.0)
@@ -33,7 +51,16 @@ func NewLouvain(graph Graph) *Louvain {
 			neigh += edge.weight
 		}
 		self := WeightType(louvain.current.graph.GetSelfWeight(nodeId))
-		louvain.current.communities[nodeId] = Community{self, neigh + self}
+		if !random { //先不分配分片，模块度社区划分后再分配分片
+			louvain.current.communities[nodeId] = Community{self, neigh + self, 0, int(neigh), -1, 1}
+		} else { //随机均匀分配到各分片
+			if len(louvain.shard) == 0 {
+				fmt.Println("shard number is 0,err!")
+			} else {
+				louvain.current.communities[nodeId] = Community{self, neigh + self, 0, int(neigh), round, 1}
+				round = (round + 1) % len(louvain.shard)
+			}
+		}
 		louvain.m2 += (neigh + 2*self)
 	}
 	return &louvain
@@ -88,6 +115,7 @@ func (this *Louvain) merge() bool {
 		prevCommunity := this.current.inCommunities[nodeId]
 		prevNeighWeight := WeightType(neighWeights[prevCommunity])
 		this.remove(nodeId, prevCommunity, 2*prevNeighWeight+self, totalWeight)
+		this.removeTX(nodeId, prevCommunity, int(prevNeighWeight), int(totalWeight-prevNeighWeight-self))
 
 		maxInc := WeightType(0.0) //max_detaQ
 		bestCommunity := prevCommunity
@@ -103,6 +131,7 @@ func (this *Louvain) merge() bool {
 		}
 
 		this.insert(nodeId, bestCommunity, 2*bestNeighWeight+self, totalWeight)
+		this.insertTX(nodeId, bestCommunity, int(bestNeighWeight), int(totalWeight-bestNeighWeight-self))
 
 		if bestCommunity != prevCommunity {
 			improved = true
@@ -124,10 +153,20 @@ func (this *Louvain) insert(nodeId int, community int, inWeight WeightType, tota
 	this.current.communities[community].totalWeight += totalWeight
 }
 
+func (this *Louvain) insertTX(nodeId int, community int, toThisCommTXnum int, toOtherCommTXnum int) {
+	this.current.communities[community].inTXnum += toThisCommTXnum
+	this.current.communities[community].exTXnum = this.current.communities[community].exTXnum + toOtherCommTXnum - toThisCommTXnum
+}
+
 func (this *Louvain) remove(nodeId int, community int, inWeight WeightType, totalWeight WeightType) {
 	this.current.inCommunities[nodeId] = -1
 	this.current.communities[community].inWeight -= inWeight
 	this.current.communities[community].totalWeight -= totalWeight
+}
+
+func (this *Louvain) removeTX(nodeId int, community int, toThisCommTXnum int, toOtherCommTXnum int) {
+	this.current.communities[community].inTXnum -= toThisCommTXnum
+	this.current.communities[community].exTXnum = this.current.communities[community].exTXnum - toOtherCommTXnum + toThisCommTXnum
 }
 
 func (this *Louvain) rebuild() {
@@ -214,6 +253,7 @@ func (this *Louvain) GetPertition(level int) ([]int, []int) {
 			commId = this.level[l].inCommunities[commId]
 		}
 		nodeToCommunity[nodeId] = commId
+		this.current.communities[commId].nodeNum += 1
 		nodeNum[commId] = nodeNum[commId] + 1
 	}
 	return nodeToCommunity, nodeNum
@@ -233,24 +273,141 @@ func (this *Louvain) GetNodeToCommunityInEachLevel(nodeId int) []int {
 	return nodeToCommunityInEachLevel
 }
 
-// 输出最后的社区数量
+// 返回社区的m2(无自环边的情况下等于边权重的2倍)
+func (this *Louvain) GetM2() WeightType {
+	return this.m2
+}
+
+// 返回最后的社区数量
 func (this *Louvain) GetCommunitiesNum() int {
 	return len(this.current.inCommunities)
 }
 
-// 输出最后的社区ID和拥有的节点数量
-func (this *Louvain) GetCommunitiesNodeNum() []int {
+// 返回最后的社区ID和拥有的节点数量,用getbestpartition
+func (this *Louvain) GetCommunitiesNodeNum() ([]int, []int) {
 	communities_num := this.GetCommunitiesNum()
-	communities := make([]int, communities_num)
+	commNodeNum := make([]int, communities_num)
+	commNodes := make([][]int, communities_num)
 	for nodeId := 0; nodeId < this.current.graph.GetNodeSize(); nodeId++ {
 		commId := this.current.inCommunities[nodeId]
-		communities[commId] = communities[commId] + 1
+		commNodeNum[commId] = commNodeNum[commId] + 1
+		commNodes[commId] = append(commNodes[commId], nodeId)
 	}
-
-	return communities
+	//将comm按照communities中值进行排序，得到的排序存在descRank中
+	sourceIndex := make([]int, communities_num)
+	for i := 0; i < communities_num; i++ {
+		sourceIndex[i] = i
+	}
+	descRank := make([]int, this.GetCommunitiesNum())
+	for i := 0; i < communities_num; i++ {
+		max := commNodeNum[0]
+		maxIndex := 0
+		for j := 0; j < communities_num-i; j++ {
+			if commNodeNum[j] > max {
+				max = commNodeNum[j]
+				maxIndex = sourceIndex[j]
+			}
+		}
+		descRank[i] = maxIndex
+		commNodeNum[maxIndex] = commNodeNum[communities_num-i-1]
+		sourceIndex[maxIndex] = communities_num - i - 1
+	}
+	return commNodeNum, descRank
 }
 
-// 返回社区的m2(无自环边的情况下等于边权重的2倍)
-func (this *Louvain) GetM2() WeightType {
-	return this.m2
+func (this *Louvain) CalShardProcessTime(lambda float32) (int, int) {
+	var maxProcessTimeShard int = -1
+	var maxProcessTime float32 = 0.0
+	var minProcessTimeShard int = -1
+	var minProcessTime float32 = 0.0
+	for _, comm := range this.current.communities {
+		this.shard[comm.inShard].processTime = (float32(comm.inTXnum) + lambda*float32(comm.exTXnum)) / this.shard[comm.inShard].performance
+		if this.shard[comm.inShard].processTime > maxProcessTime {
+			maxProcessTime = this.shard[comm.inShard].processTime
+			maxProcessTimeShard = comm.inShard
+			if minProcessTime == 0.0 {
+				minProcessTime = maxProcessTime
+				minProcessTimeShard = comm.inShard
+			}
+		}
+		if this.shard[comm.inShard].processTime < minProcessTime {
+			minProcessTime = this.shard[comm.inShard].processTime
+			minProcessTimeShard = comm.inShard
+		}
+	}
+	return maxProcessTimeShard, minProcessTimeShard
+}
+
+// 寻找处理时间最短的分片
+func (this *Louvain) findMinProcessTimeShard() int {
+	var minProcessTimeShard int = -1
+	var minProcessTime float32 = 0.0
+	for index, shard := range this.shard {
+		if shard.processTime < minProcessTime {
+			minProcessTime = shard.processTime
+			minProcessTimeShard = index
+		}
+	}
+	return minProcessTimeShard
+}
+
+// 分配社区到分片。将节点数最多的社区分配到前几个分片，如果社区数多于分片数，后续社区加到处理时间最短的分片
+func (this *Louvain) commToShard() {
+	commNodeNum, descRank := this.GetCommunitiesNodeNum()
+	if len(descRank) < len(this.shard) {
+		fmt.Println("社区划分后的社区数小于分片数！")
+		//将社区分到前几个分片
+		for i := 0; i < len(descRank); i++ {
+			this.current.communities[descRank[i]].inShard = i
+			//更新分片的节点数、内部交易、外部交易、处理时间
+			this.shard[i].nodeNum = commNodeNum[descRank[i]]
+			this.shard[i].inTXnum = this.current.communities[descRank[i]].inTXnum
+			this.shard[i].exTXnum = this.current.communities[descRank[i]].exTXnum
+			this.shard[i].processTime = (float32(this.shard[i].inTXnum) + 2.0*float32(this.shard[i].exTXnum)) / this.shard[i].performance
+		}
+		for i := len(descRank); i < len(this.shard); i++ {
+			this.shard[i].processTime = 0.0
+			this.shard[i].nodeNum = 0
+			this.shard[i].inTXnum = 0
+			this.shard[i].exTXnum = 0
+		}
+
+	} else {
+		for i := 0; i < len(this.shard); i++ {
+			this.current.communities[descRank[i]].inShard = i
+			this.shard[i].nodeNum = commNodeNum[descRank[i]]
+			this.shard[i].inTXnum = this.current.communities[descRank[i]].inTXnum
+			this.shard[i].exTXnum = this.current.communities[descRank[i]].exTXnum
+			this.shard[i].processTime = (float32(this.shard[i].inTXnum) + 2.0*float32(this.shard[i].exTXnum)) / this.shard[i].performance
+		}
+		var lambda float32 = 2.0
+		_, minProcessTimeShard := this.CalShardProcessTime(lambda)
+		for i := len(this.shard); i < len(descRank); i++ {
+			commID := descRank[i]
+			//加入到处理时间最短的分片
+			this.current.communities[commID].inShard = minProcessTimeShard
+			//计算该社区与要加入的分片的交易数量
+			commToShardTXnum := this.calCommShardTXnum(commID, minProcessTimeShard)
+			//更新分片的交易数量
+			this.shard[minProcessTimeShard].inTXnum += commToShardTXnum + this.current.communities[commID].inTXnum
+			this.shard[minProcessTimeShard].exTXnum += this.current.communities[commID].exTXnum - commToShardTXnum
+			//更新分片的节点数量、处理时间
+			this.shard[minProcessTimeShard].nodeNum += commNodeNum[commID]
+			this.shard[minProcessTimeShard].processTime = (float32(this.shard[minProcessTimeShard].inTXnum) +
+				lambda*float32(this.shard[minProcessTimeShard].exTXnum)) / this.shard[minProcessTimeShard].performance
+			//更新最短处理时间的分片
+			minProcessTimeShard = this.findMinProcessTimeShard()
+		}
+	}
+}
+
+// 计算某个社区与某个分片的交易数量
+func (this *Louvain) calCommShardTXnum(community int, shard int) int {
+	var commToShardTXnum int = 0
+	for _, edge := range this.current.graph.GetIncidentEdges(community) {
+		if this.current.communities[edge.destId].inShard == shard {
+			commToShardTXnum += int(edge.weight)
+		}
+	}
+	return commToShardTXnum
 }

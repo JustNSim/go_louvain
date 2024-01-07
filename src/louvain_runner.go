@@ -23,8 +23,13 @@ func main() {
 	graph := graphReader.Load(*inputFilename)
 
 	startTime2 := time.Now()
-	louvain := louvain.NewLouvain(graph)
-	louvain.Compute()
+	//设置每个社区性能值
+	var shardNum = 4
+	shardPerformance := []float32{250, 250, 200, 100}
+	var israndom bool = false
+
+	louvain := louvain.NewLouvain(graph, shardPerformance, israndom)
+	louvain.Compute() //社区划分
 
 	//fmt.Printf("m2 of communities: %f\n", louvain.GetM2())
 	fmt.Printf("Number of nodes: %d\n", graph.GetNodeSize())
@@ -38,9 +43,6 @@ func main() {
 		// for nodeId, commId := range nodeToCommunity {
 		// 	fmt.Printf("nodeId: %s communityId: %d \n", graphReader.GetNodeLabel(nodeId), commId)
 		// }
-
-		//louvain.GetBestPertition()
-
 		//打印每个社区的节点数
 		_, nodeNum := louvain.GetBestPertition()
 		for commId, nodeNum := range nodeNum {
@@ -52,6 +54,16 @@ func main() {
 			fmt.Print(graphReader.GetNodeLabel(nodeId) + " ")
 			fmt.Println(louvain.GetNodeToCommunityInEachLevel(nodeId))
 		}
+	}
+
+	commNodeNum, descRank := louvain.GetCommunitiesNodeNum()
+	if louvain.GetCommunitiesNum() > shardNum {
+		//将社区按照节点数从大到小排序，descRank表示排序后社区的Index，GetCommunitiesNum返回的是无序的社区数量
+		for i := 0; i < louvain.GetCommunitiesNum(); i++ {
+			descRank[i] = i
+		}
+
+		return
 	}
 
 	endTime := time.Now()
