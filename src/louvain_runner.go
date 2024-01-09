@@ -29,11 +29,26 @@ func main() {
 	var israndom bool = false
 
 	louvain := louvain.NewLouvain(graph, shardPerformance, israndom)
-	louvain.Compute() //社区划分
+	var isModularity bool = true
+	louvain.Compute(isModularity) //社区划分
 
 	//fmt.Printf("m2 of communities: %f\n", louvain.GetM2())
 	fmt.Printf("Number of nodes: %d\n", graph.GetNodeSize())
 	fmt.Printf("Number of communities: %d\n", louvain.GetCommunitiesNum())
+
+	//打印每个节点所属的社区
+	nodeToCommunity, nodeNum := louvain.GetBestPertition()
+	for nodeId, commId := range nodeToCommunity {
+		fmt.Printf("nodeId: %s communityId: %d \n", graphReader.GetNodeLabel(nodeId), commId)
+	}
+	//打印每个社区的节点数
+	for commId, nodeNum := range nodeNum {
+		fmt.Printf("commId: %d nodeNum: %d \n", commId, nodeNum)
+	}
+
+	louvain.CommToShard()
+	isModularity = false
+	louvain.Merge(isModularity, nodeToCommunity)
 
 	if *showCommunityIdOfEachLayer == false {
 		fmt.Printf("Nodes to communities.\n")
@@ -54,16 +69,6 @@ func main() {
 			fmt.Print(graphReader.GetNodeLabel(nodeId) + " ")
 			fmt.Println(louvain.GetNodeToCommunityInEachLevel(nodeId))
 		}
-	}
-
-	commNodeNum, descRank := louvain.GetCommunitiesNodeNum()
-	if louvain.GetCommunitiesNum() > shardNum {
-		//将社区按照节点数从大到小排序，descRank表示排序后社区的Index，GetCommunitiesNum返回的是无序的社区数量
-		for i := 0; i < louvain.GetCommunitiesNum(); i++ {
-			descRank[i] = i
-		}
-
-		return
 	}
 
 	endTime := time.Now()

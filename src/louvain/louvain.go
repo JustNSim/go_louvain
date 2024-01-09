@@ -83,8 +83,11 @@ func (this *Level) modularity(m2 WeightType) WeightType {
 }
 
 // 合并社区(一次层级内社区合并，要移动的节点的所属分片标签inCommunity变为移动到的分片的分片编号)
-func (this *Louvain) merge() bool {
+func (this *Louvain) Merge(isModularity bool, nodeToCommunity []int) bool {
 	improved := false
+	if !isModularity {
+		this.current = &this.level[0]
+	}
 
 	q := make([]int, this.current.graph.GetNodeSize())
 	mark := make([]bool, this.current.graph.GetNodeSize())
@@ -102,6 +105,7 @@ func (this *Louvain) merge() bool {
 		self := WeightType(this.current.graph.GetSelfWeight(nodeId))
 		totalWeight := self
 
+		//neighWeightsKeys存邻居节点所在社区
 		neighWeightsKeys := make([]int, 0, len(neighWeights))
 		for _, edge := range this.current.graph.GetIncidentEdges(nodeId) {
 			destCommId := this.current.inCommunities[edge.destId]
@@ -120,13 +124,41 @@ func (this *Louvain) merge() bool {
 		maxInc := WeightType(0.0) //max_detaQ
 		bestCommunity := prevCommunity
 		bestNeighWeight := WeightType(prevNeighWeight) //指与当前节点相连的社区的权重
-		for _, community := range neighWeightsKeys {
-			weight := neighWeights[community]
-			inc := WeightType(weight - this.current.communities[community].totalWeight*totalWeight/this.m2) //detaQ
-			if inc > maxInc {
-				maxInc = inc
-				bestCommunity = community
-				bestNeighWeight = weight
+
+		if isModularity {
+			for _, community := range neighWeightsKeys {
+				weight := neighWeights[community]
+				inc := WeightType(weight - this.current.communities[community].totalWeight*totalWeight/this.m2) //detaQ
+				if inc > maxInc {
+					maxInc = inc
+					bestCommunity = community
+					bestNeighWeight = weight
+				}
+			}
+		} else { //以处理时间为依据判断是否移动节点，
+			var lastLevel int = len(this.level) - 1
+			for _, community := range neighWeightsKeys { //此时因为是第一层，所以community就是邻居节点编号
+				//判断不在一个分片的邻居节点
+				myShard := this.level[lastLevel].communities[nodeToCommunity[nodeId]].inShard
+				neighShard := this.level[lastLevel].communities[nodeToCommunity[community]].inShard
+				if myShard != neighShard {
+					//计算节点移动到邻居所在社区后，两个分片的处理时间的最大值是否下降，
+
+					
+					//var commToShardTXnum int = 0
+					// for _, edge := range this.level[0].graph.GetIncidentEdges(community) {
+					// if nodeToCommunity[edge.destId].inShard == shard {
+					// 	commToShardTXnum += int(edge.weight)
+					// }
+				}
+				}
+				weight := neighWeights[community]
+				inc := WeightType(weight - this.current.communities[community].totalWeight*totalWeight/this.m2) //detaQ
+				if inc > maxInc {
+					maxInc = inc
+					bestCommunity = community
+					bestNeighWeight = weight
+				}
 			}
 		}
 
@@ -148,6 +180,7 @@ func (this *Louvain) merge() bool {
 }
 
 func (this *Louvain) insert(nodeId int, community int, inWeight WeightType, totalWeight WeightType) {
+	this.current.communities[nodeId].inShard=this.current.communities[community].inShard
 	this.current.inCommunities[nodeId] = community
 	this.current.communities[community].inWeight += inWeight
 	this.current.communities[community].totalWeight += totalWeight
@@ -169,11 +202,11 @@ func (this *Louvain) removeTX(nodeId int, community int, toThisCommTXnum int, to
 	this.current.communities[community].exTXnum = this.current.communities[community].exTXnum - toOtherCommTXnum + toThisCommTXnum
 }
 
-func (this *Louvain) rebuild() {
+func (this *Louvain) rebuild() { //添加 节点的inShard更新，好像复制时已经复制了
 
 	renumbers := map[int]int{}
 	num := 0 //新社区的数量
-	//循环前移动节点的所属分片标签inCommunity为移动到的分片的分片编号，这个循环的目的是为了给新的社区重新编号
+	//循环前移动节点的所属分片标签inCommunity为移动到的社区的社区编号，这个循环的目的是为了给新的社区重新编号
 	for nodeId, inCommunity := range this.current.inCommunities {
 		if commId, exists := renumbers[inCommunity]; !exists {
 			//fmt.Println("1-nodeId", nodeId, "inCommunity:", inCommunity, " num:", num)
@@ -238,8 +271,9 @@ func (this *Louvain) GetLevel(n int) *Level {
 	return &this.level[n]
 }
 
-func (this *Louvain) Compute() {
-	for this.merge() { //不断的合并重构直到没有节点移动，没有增益
+func (this *Louvain) Compute(isModularity bool) {
+	nodeToCommunity := make([]int, 1)               //在模块度划分时不会用上
+	for this.Merge(isModularity, nodeToCommunity) { //不断的合并重构直到没有节点移动，没有增益
 		this.rebuild()
 	}
 }
@@ -339,7 +373,7 @@ func (this *Louvain) CalShardProcessTime(lambda float32) (int, int) {
 }
 
 // 寻找处理时间最短的分片
-func (this *Louvain) findMinProcessTimeShard() int {
+func (this *Louvain) FindMinProcessTimeShard() int {
 	var minProcessTimeShard int = -1
 	var minProcessTime float32 = 0.0
 	for index, shard := range this.shard {
@@ -351,8 +385,19 @@ func (this *Louvain) findMinProcessTimeShard() int {
 	return minProcessTimeShard
 }
 
+// 计算某个社区与某个分片的交易数量
+func (this *Louvain) CalCommShardTXnum(community int, shard int, levelIndex *Level) int {
+	var commToShardTXnum int = 0
+	for _, edge := range levelIndex.graph.GetIncidentEdges(community) {
+		if levelIndex.communities[edge.destId].inShard == shard {
+			commToShardTXnum += int(edge.weight)
+		}
+	}
+	return commToShardTXnum
+}
+
 // 分配社区到分片。将节点数最多的社区分配到前几个分片，如果社区数多于分片数，后续社区加到处理时间最短的分片
-func (this *Louvain) commToShard() {
+func (this *Louvain) CommToShard() {
 	commNodeNum, descRank := this.GetCommunitiesNodeNum()
 	if len(descRank) < len(this.shard) {
 		fmt.Println("社区划分后的社区数小于分片数！")
@@ -387,7 +432,7 @@ func (this *Louvain) commToShard() {
 			//加入到处理时间最短的分片
 			this.current.communities[commID].inShard = minProcessTimeShard
 			//计算该社区与要加入的分片的交易数量
-			commToShardTXnum := this.calCommShardTXnum(commID, minProcessTimeShard)
+			commToShardTXnum := this.CalCommShardTXnum(commID, minProcessTimeShard, this.current)
 			//更新分片的交易数量
 			this.shard[minProcessTimeShard].inTXnum += commToShardTXnum + this.current.communities[commID].inTXnum
 			this.shard[minProcessTimeShard].exTXnum += this.current.communities[commID].exTXnum - commToShardTXnum
@@ -396,18 +441,12 @@ func (this *Louvain) commToShard() {
 			this.shard[minProcessTimeShard].processTime = (float32(this.shard[minProcessTimeShard].inTXnum) +
 				lambda*float32(this.shard[minProcessTimeShard].exTXnum)) / this.shard[minProcessTimeShard].performance
 			//更新最短处理时间的分片
-			minProcessTimeShard = this.findMinProcessTimeShard()
+			minProcessTimeShard = this.FindMinProcessTimeShard()
 		}
 	}
 }
 
-// 计算某个社区与某个分片的交易数量
-func (this *Louvain) calCommShardTXnum(community int, shard int) int {
-	var commToShardTXnum int = 0
-	for _, edge := range this.current.graph.GetIncidentEdges(community) {
-		if this.current.communities[edge.destId].inShard == shard {
-			commToShardTXnum += int(edge.weight)
-		}
-	}
-	return commToShardTXnum
-}
+// //遍历所有底层节点，判断将其移动到相邻节点的分片是否会使源分片和目的分片的处理时间中较大的那个值数值降低，如果是，移动节点
+// func (this *Louvain) moveNode() {
+// 	for
+// }
