@@ -10,7 +10,7 @@ import (
 
 func main() {
 	var inputFilename = flag.String("i", "", "Input graph filename for loouvain. [Required]")
-	var showCommunityIdOfEachLayer = flag.Bool("l", false, "Show community id of each layer as result. Default setting is false.")
+	//var showCommunityIdOfEachLayer = flag.Bool("l", false, "Show community id of each layer as result. Default setting is false.")
 	flag.Parse()
 
 	if *inputFilename == "" {
@@ -27,16 +27,17 @@ func main() {
 	var shardNum = 4
 	shardPerformance := []float32{250, 250, 200, 100}
 	var israndom bool = false
+	var lambda float32 = 2.0
 
-	louvain := louvain.NewLouvain(graph, shardPerformance, israndom)
+	louvain := louvain.NewLouvain(graph, shardPerformance, israndom, lambda, shardNum)
 	var isModularity bool = true
 	louvain.Compute(isModularity) //社区划分
 
-	//fmt.Printf("m2 of communities: %f\n", louvain.GetM2())
+	//打印社区划分结果
 	fmt.Printf("Number of nodes: %d\n", graph.GetNodeSize())
 	fmt.Printf("Number of communities: %d\n", louvain.GetCommunitiesNum())
 
-	//打印每个节点所属的社区
+	//打印每个节点所属的社区,GetBestPertition()中梳理了节点最后对应的社区。更新了节点在第一层的社区所属的分片
 	nodeToCommunity, nodeNum := louvain.GetBestPertition()
 	for nodeId, commId := range nodeToCommunity {
 		fmt.Printf("nodeId: %s communityId: %d \n", graphReader.GetNodeLabel(nodeId), commId)
@@ -46,30 +47,40 @@ func main() {
 		fmt.Printf("commId: %d nodeNum: %d \n", commId, nodeNum)
 	}
 
-	louvain.CommToShard()
+	//将社区分配到分片
+	louvain.CommToShard(louvain.GetLambda())
+	louvain.UpdateNodeShardIndex(louvain.GetLevelNum() - 1)
+	//按处理时间判断节点是否移动
 	isModularity = false
 	louvain.Merge(isModularity, nodeToCommunity)
-
-	if *showCommunityIdOfEachLayer == false {
-		fmt.Printf("Nodes to communities.\n")
-
-		//打印每个节点所属的社区
-		// nodeToCommunity, nodeNum := louvain.GetBestPertition()
-		// for nodeId, commId := range nodeToCommunity {
-		// 	fmt.Printf("nodeId: %s communityId: %d \n", graphReader.GetNodeLabel(nodeId), commId)
-		// }
-		//打印每个社区的节点数
-		_, nodeNum := louvain.GetBestPertition()
-		for commId, nodeNum := range nodeNum {
-			fmt.Printf("commId: %d nodeNum: %d \n", commId, nodeNum)
-		}
-	} else {
-		fmt.Println("[NodeId] [CommunityId in each layer]")
-		for nodeId := 0; nodeId != graph.GetNodeSize(); nodeId++ {
-			fmt.Print(graphReader.GetNodeLabel(nodeId) + " ")
-			fmt.Println(louvain.GetNodeToCommunityInEachLevel(nodeId))
-		}
+	louvain.PrintShard()
+	//louvain.UpdateNodeShardIndex(0)
+	shardNodeList := louvain.GetShardNodeList()
+	//打印二维数组shardNodeList
+	for i := 0; i < len(shardNodeList); i++ {
+		fmt.Printf("shardNodeList[%d]: %v\n", i, shardNodeList[i])
 	}
+
+	// if *showCommunityIdOfEachLayer == false {
+	// 	fmt.Printf("Nodes to communities.\n")
+
+	// 	//打印每个节点所属的社区
+	// 	// nodeToCommunity, nodeNum := louvain.GetBestPertition()
+	// 	// for nodeId, commId := range nodeToCommunity {
+	// 	// 	fmt.Printf("nodeId: %s communityId: %d \n", graphReader.GetNodeLabel(nodeId), commId)
+	// 	// }
+	// 	//打印每个社区的节点数
+	// 	_, nodeNum := louvain.GetBestPertition()
+	// 	for commId, nodeNum := range nodeNum {
+	// 		fmt.Printf("commId: %d nodeNum: %d \n", commId, nodeNum)
+	// 	}
+	// } else {
+	// 	fmt.Println("[NodeId] [CommunityId in each layer]")
+	// 	for nodeId := 0; nodeId != graph.GetNodeSize(); nodeId++ {
+	// 		fmt.Print(graphReader.GetNodeLabel(nodeId) + " ")
+	// 		fmt.Println(louvain.GetNodeToCommunityInEachLevel(nodeId))
+	// 	}
+	// }
 
 	endTime := time.Now()
 	// 计算时间差

@@ -28,6 +28,7 @@ go build louvain_runner.go
 ```
 dlv debug --headless --listen ":2345" --log --api-version 2 -- -i louvain/resource/karate.txt
 dlv debug --headless --listen ":2345" --log --api-version 2 -- -i louvain/resource/from_to_49tx.csv
+dlv debug --headless --listen ":2345" --log --api-version 2 -- -i louvain/resource/from_to_13tx.csv
 ```
 
 
