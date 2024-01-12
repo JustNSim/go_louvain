@@ -32,33 +32,42 @@ func main() {
 	louvain := louvain.NewLouvain(graph, shardPerformance, israndom, lambda, shardNum)
 	var isModularity bool = true
 	louvain.Compute(isModularity) //社区划分
-
 	//打印社区划分结果
 	fmt.Printf("Number of nodes: %d\n", graph.GetNodeSize())
 	fmt.Printf("Number of communities: %d\n", louvain.GetCommunitiesNum())
-
 	//打印每个节点所属的社区,GetBestPertition()中梳理了节点最后对应的社区。更新了节点在第一层的社区所属的分片
-	nodeToCommunity, nodeNum := louvain.GetBestPertition()
-	for nodeId, commId := range nodeToCommunity {
-		fmt.Printf("nodeId: %s communityId: %d \n", graphReader.GetNodeLabel(nodeId), commId)
-	}
-	//打印每个社区的节点数
-	for commId, nodeNum := range nodeNum {
-		fmt.Printf("commId: %d nodeNum: %d \n", commId, nodeNum)
-	}
+	// nodeToCommunity, nodeNum := louvain.GetBestPertition()
+	// for nodeId, commId := range nodeToCommunity {
+	// 	fmt.Printf("nodeId: %s communityId: %d \n", graphReader.GetNodeLabel(nodeId), commId)
+	// }
+	// //打印每个社区的节点数
+	// for commId, nodeNum := range nodeNum {
+	// 	fmt.Printf("commId: %d nodeNum: %d \n", commId, nodeNum)
+	// }
 
 	//将社区分配到分片
+	fmt.Println("---------start the second stage comm to shard")
 	louvain.CommToShard(louvain.GetLambda())
-	louvain.UpdateNodeShardIndex(louvain.GetLevelNum() - 1)
+	_, nodeToShard := louvain.UpdateNodeShardIndex()
+	louvain.PrintShard()
 	//按处理时间判断节点是否移动
 	isModularity = false
-	louvain.Merge(isModularity, nodeToCommunity)
+	result := true
+	for i := 1; result; i++ {
+		fmt.Println("start the third stage node Merge: ", i, " times")
+		result, nodeToShard = louvain.Merge(isModularity, nodeToShard)
+		if i > 20 {
+			break
+		}
+	}
+
 	louvain.PrintShard()
 	//louvain.UpdateNodeShardIndex(0)
-	shardNodeList := louvain.GetShardNodeList()
+	shardNodeList := louvain.GetShardNodeList(nodeToShard)
 	//打印二维数组shardNodeList
 	for i := 0; i < len(shardNodeList); i++ {
-		fmt.Printf("shardNodeList[%d]: %v\n", i, shardNodeList[i])
+		//fmt.Printf("shard[%d] %d nodes: %v\n", i, len(shardNodeList[i]), shardNodeList[i])
+		fmt.Printf("shard[%d] %d nodes\n", i, len(shardNodeList[i]))
 	}
 
 	// if *showCommunityIdOfEachLayer == false {
