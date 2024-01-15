@@ -177,10 +177,11 @@ func (this *Louvain) Merge(isModularity bool, nodeToShard []int) (bool, []int) {
 			bestShardProcesstime := this.shard[myShard].processTime
 			bestShardInTxNum := this.shard[myShard].inTXnum
 			bestShardExTxNum := this.shard[myShard].exTXnum
-			for index, community := range otherShardNeighList { //此时因为是第一层，所以community就是邻居节点编号
+			maskShard := make([]int, len(this.shard))
+			for index, community := range otherShardNeighList { //存着不在一个分片的邻居的社区编号
 				//判断不在一个分片的邻居节点
 				neighShard := otherShardNeighShardIndex[index]
-				if myShard != neighShard {
+				if myShard != neighShard && maskShard[neighShard] == 0 {
 					//计算节点移动到邻居所在社区后，两个分片的处理时间的最大值是否下降，
 					nodeToMyShardTXnum := this.CalCommShardTXnum(community, myShard, &this.level[0])
 					nodeToOtherShardTXnum := int(totalWeight-self) - nodeToMyShardTXnum
@@ -220,6 +221,7 @@ func (this *Louvain) Merge(isModularity bool, nodeToShard []int) (bool, []int) {
 						bestShardExTxNum = newDestExTXnum
 						bestShardProcesstime = newDestProcessTime
 					}
+					maskShard[neighShard] = 1
 				}
 			}
 			if bestCommunity != prevCommunity { //节点移动后更新分片的处理时间、节点所属分片
